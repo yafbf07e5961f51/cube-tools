@@ -1,0 +1,1418 @@
+<!doctype html>
+<!--
+Square-1 Cube Shape Trainer
+This file includes the Square-1 solver and cube shape case definitions (scramble_sq1_new.js)
+and parts of mathlib.js from csTimer (https://github.com/cs0x7f/cstimer),
+licensed under the GNU General Public License v3.0.
+This file is therefore also distributed under the GNU GPL v3.0. See LICENSE.
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sq1 Cube Shape Trainer</title>
+<style>
+body { font-family: -apple-system, "Helvetica Neue", sans-serif; background: #1e1e1e; color: #eee; margin: 0; padding: 16px; }
+h1 { font-size: 20px; margin: 0 0 12px; }
+.cases { margin-bottom: 12px; font-family: monospace; font-size: 15px; }
+.catrow { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 0; border-bottom: 1px solid #333; }
+.catrow .cat { min-width: 110px; font-weight: bold; }
+.cases label { cursor: pointer; white-space: nowrap; }
+#detailWrap { display: none; }
+#detailWrap.open { display: block; }
+.note { color: #888; font-size: 13px; margin-bottom: 8px; }
+.controls { margin-bottom: 12px; }
+button { font-size: 16px; padding: 6px 16px; margin-right: 8px; margin-bottom: 4px; cursor: pointer; }
+#count { font-family: monospace; color: #aaa; margin-bottom: 8px; }
+#info { color: #ff6b6b; min-height: 20px; }
+#scramble { font-family: monospace; font-size: 28px; margin: 16px 0; min-height: 40px; word-break: break-word; }
+#prev { font-family: monospace; font-size: 16px; color: #888; margin-bottom: 8px; min-height: 20px; word-break: break-word; }
+#timer { font-family: monospace; font-size: 72px; text-align: center; padding: 24px 0; user-select: none; -webkit-user-select: none; touch-action: none; cursor: pointer; }
+#timer.ready { color: #34c759; }
+#timer.hold { color: #ff3b30; }
+#stats { font-family: monospace; font-size: 16px; margin-bottom: 8px; }
+select { font-size: 15px; }
+table.stat { border-collapse: collapse; margin-bottom: 12px; font-family: monospace; font-size: 15px; }
+table.stat th, table.stat td { padding: 3px 10px; text-align: right; border-bottom: 1px solid #333; }
+table.stat th { color: #aaa; font-weight: normal; }
+table.stat td:first-child, table.stat th:first-child { text-align: left; }
+button.small { font-size: 13px; padding: 2px 8px; margin: 0; }
+#times { font-family: monospace; font-size: 16px; color: #ccc; max-height: 300px; overflow-y: auto; }
+body.running .hide-running { visibility: hidden; }
+footer { margin-top: 24px; font-size: 12px; color: #888; }
+footer a { color: #aaa; }
+</style>
+</head>
+<body>
+<div class="hide-running">
+<h1>Square-1 Cube Shape Trainer</h1>
+<div class="note">ケース選択（左右反転のケースはまとめて表示）。スクランブルは揃った状態から最短の / 回数でその形状にする手順。</div>
+<div class="cases" id="groups"></div>
+<div class="controls">
+  <button id="next">Next (→)</button>
+  <button id="all">全選択</button>
+  <button id="clear">全解除</button>
+  <button id="detail">個別選択 ▼</button>
+</div>
+<div id="detailWrap">
+<div class="note">個別選択</div>
+<div class="cases" id="combos"></div>
+</div>
+<div id="count"></div>
+<div id="info"></div>
+<div id="scramble"></div>
+<div id="prev"></div>
+</div>
+<div id="timer">0.00</div>
+<div class="hide-running">
+<div id="stats"></div>
+<div class="controls">
+  <button id="dellast">最後の記録を削除</button>
+  <button id="delall">全削除</button>
+</div>
+<div class="controls">パターン別集計:
+  <select id="statMode"><option value="cat">カテゴリ</option><option value="group">左右まとめ</option><option value="case">個別</option></select>
+</div>
+<table class="stat" id="patStats"></table>
+<div id="times"></div>
+<footer>Scrambler: Square-1 shape tables from <a href="https://github.com/cs0x7f/cstimer">csTimer</a> (GPL-3.0) / <a href="../">Home</a></footer>
+</div>
+
+<script>
+"use strict";
+// ---- csTimer mathlib.js より必要な関数のみ抜粋 ----
+var mathlib = (function() {
+	var fact = [1];
+	for (var i = 0; i < 32; i++) {
+		fact[i + 1] = fact[i] * (i + 1);
+	}
+	function circle(arr) {
+		var length = arguments.length - 1,
+			temp = arr[arguments[length]];
+		for (var i = length; i > 1; i--) {
+			arr[arguments[i]] = arr[arguments[i - 1]];
+		}
+		arr[arguments[1]] = temp;
+		return circle;
+	}
+
+	function setNPerm(arr, idx, n, even) {
+		var prt = 0;
+		if (even < 0) {
+			idx <<= 1;
+		}
+		if (n >= 16) {
+			arr[n - 1] = 0;
+			for (var i = n - 2; i >= 0; i--) {
+				arr[i] = idx % (n - i);
+				prt ^= arr[i];
+				idx = ~~(idx / (n - i));
+				for (var j = i + 1; j < n; j--) {
+					arr[j] >= arr[i] && arr[j]++;
+				}
+			}
+			if (even < 0 && (prt & 1) != 0) {
+				var tmp = arr[n - 1];
+				arr[n - 1] = arr[n - 2];
+				arr[n - 2] = tmp;
+			}
+			return arr;
+		}
+		var vall = 0x76543210;
+		var valh = 0xfedcba98;
+		for (var i = 0; i < n - 1; i++) {
+			var p = fact[n - 1 - i];
+			var v = idx / p;
+			idx = idx % p;
+			prt ^= v;
+			v <<= 2;
+			if (v >= 32) {
+				v = v - 32;
+				arr[i] = valh >> v & 0xf;
+				var m = (1 << v) - 1;
+				valh = (valh & m) + ((valh >> 4) & ~m);
+			} else {
+				arr[i] = vall >> v & 0xf;
+				var m = (1 << v) - 1;
+				vall = (vall & m) + ((vall >>> 4) & ~m) + (valh << 28);
+				valh = valh >> 4;
+			}
+		}
+		if (even < 0 && (prt & 1) != 0) {
+			arr[n - 1] = arr[n - 2];
+			arr[n - 2] = vall & 0xf;
+		} else {
+			arr[n - 1] = vall & 0xf;
+		}
+		return arr;
+	}
+
+	function getNPerm(arr, n, even) {
+		n = n || arr.length;
+		var idx = 0;
+		if (n >= 16) {
+			for (var i = 0; i < n - 1; i++) {
+				idx *= n - i;
+				for (var j = i + 1; j < n; j++) {
+					arr[j] < arr[i] && idx++;
+				}
+			}
+			return even < 0 ? (idx >> 1) : idx;
+		}
+		var vall = 0x76543210;
+		var valh = 0xfedcba98;
+		for (var i = 0; i < n - 1; i++) {
+			var v = arr[i] << 2;
+			idx *= n - i;
+			if (v >= 32) {
+				idx += (valh >> (v - 32)) & 0xf;
+				valh -= 0x11111110 << (v - 32);
+			} else {
+				idx += (vall >> v) & 0xf;
+				valh -= 0x11111111;
+				vall -= 0x11111110 << v;
+			}
+		}
+		return even < 0 ? (idx >> 1) : idx;
+	}
+
+	function rn(n) {
+		return ~~(Math.random() * n)
+	}
+	return { circle: circle, setNPerm: setNPerm, getNPerm: getNPerm, rn: rn };
+})();
+
+// ---- csTimer scramble_sq1_new.js より Square-1 ソルバ部分を抜粋 ----
+var sq1 = (function(setNPerm, getNPerm, circle, rn) {
+
+	function SqCubie() {
+		this.ul = 0x011233; // 0 UB, 1 UBL, 2 UL, 3 UFL
+		this.ur = 0x455677; // 4 UF, 5 UFR, 6 UR, 7 UBR
+		this.dl = 0x998bba; // 9 DBR, 8 DR, b DFR, a DF
+		this.dr = 0xddcffe; // d DFL, c DL, f DBL, e DB
+		this.ml = 0;
+	}
+
+	var _ = SqCubie.prototype;
+
+	_.toString = function() {
+		return this.ul.toString(16).padStart(6, 0) +
+			this.ur.toString(16).padStart(6, 0) +
+			"|/".charAt(this.ml) +
+			this.dl.toString(16).padStart(6, 0) +
+			this.dr.toString(16).padStart(6, 0);
+	}
+
+	_.pieceAt = function(idx) {
+		var ret;
+		if (idx < 6) {
+			ret = this.ul >> ((5 - idx) << 2);
+		} else if (idx < 12) {
+			ret = this.ur >> ((11 - idx) << 2);
+		} else if (idx < 18) {
+			ret = this.dl >> ((17 - idx) << 2);
+		} else {
+			ret = this.dr >> ((23 - idx) << 2);
+		}
+		return ret & 0xf;
+	}
+
+	_.setPiece = function(idx, value) {
+		if (idx < 6) {
+			this.ul &= ~(0xf << ((5 - idx) << 2));
+			this.ul |= value << ((5 - idx) << 2);
+		} else if (idx < 12) {
+			this.ur &= ~(0xf << ((11 - idx) << 2));
+			this.ur |= value << ((11 - idx) << 2);
+		} else if (idx < 18) {
+			this.dl &= ~(0xf << ((17 - idx) << 2));
+			this.dl |= value << ((17 - idx) << 2);
+		} else {
+			this.dr &= ~(0xf << ((23 - idx) << 2));
+			this.dr |= value << ((23 - idx) << 2);
+		}
+	}
+
+	_.copy = function(c) {
+		this.ul = c.ul;
+		this.ur = c.ur;
+		this.dl = c.dl;
+		this.dr = c.dr;
+		this.ml = c.ml;
+	}
+
+	_.doMove = function(move) {
+		var temp;
+		move <<= 2;
+		if (move > 24) {
+			move = 48 - move;
+			temp = this.ul;
+			this.ul = (this.ul >> move | this.ur << 24 - move) & 0xffffff;
+			this.ur = (this.ur >> move | temp << 24 - move) & 0xffffff;
+		} else if (move > 0) {
+			temp = this.ul;
+			this.ul = (this.ul << move | this.ur >> 24 - move) & 0xffffff;
+			this.ur = (this.ur << move | temp >> 24 - move) & 0xffffff;
+		} else if (move == 0) {
+			temp = this.ur;
+			this.ur = this.dl;
+			this.dl = temp;
+			this.ml = 1 - this.ml;
+		} else if (move >= -24) {
+			move = -move;
+			temp = this.dl;
+			this.dl = (this.dl << move | this.dr >> 24 - move) & 0xffffff;
+			this.dr = (this.dr << move | temp >> 24 - move) & 0xffffff;
+		} else if (move < -24) {
+			move = 48 + move;
+			temp = this.dl;
+			this.dl = (this.dl >> move | this.dr << 24 - move) & 0xffffff;
+			this.dr = (this.dr >> move | temp << 24 - move) & 0xffffff;
+		}
+	}
+
+	function FullCube_getParity(obj) {
+		var a, b, cnt, i, p, arr;
+		cnt = 0;
+		arr = [obj.pieceAt(0)];
+		for (i = 1; i < 24; ++i) {
+			if (obj.pieceAt(i) != arr[cnt]) {
+				arr[++cnt] = obj.pieceAt(i);
+			}
+		}
+		p = 0;
+		for (a = 0; a < 16; ++a) {
+			for (b = a + 1; b < 16; ++b) {
+				arr[a] > arr[b] && (p ^= 1);
+			}
+		}
+		return p;
+	}
+
+	function FullCube_getShapeIdx(obj) {
+		var dlx, drx, ulx, urx;
+		urx = obj.ur & 0x111111;
+		urx |= urx >> 3;
+		urx |= urx >> 6;
+		urx = urx & 15 | urx >> 12 & 48;
+		ulx = obj.ul & 0x111111;
+		ulx |= ulx >> 3;
+		ulx |= ulx >> 6;
+		ulx = ulx & 15 | ulx >> 12 & 48;
+		drx = obj.dr & 0x111111;
+		drx |= drx >> 3;
+		drx |= drx >> 6;
+		drx = drx & 15 | drx >> 12 & 48;
+		dlx = obj.dl & 0x111111;
+		dlx |= dlx >> 3;
+		dlx |= dlx >> 6;
+		dlx = dlx & 15 | dlx >> 12 & 48;
+		return Shape_getShape2Idx(FullCube_getParity(obj) << 24 | ulx << 18 | urx << 12 | dlx << 6 | drx);
+	}
+
+	function FullCube_getSquare(obj, sq) {
+		var a, b;
+		var prm = [];
+		for (a = 0; a < 8; ++a) {
+			prm[a] = obj.pieceAt(a * 3 + 1) >> 1;
+		}
+		sq.cornperm = getNPerm(prm, 8);
+		sq.topEdgeFirst = obj.pieceAt(0) == obj.pieceAt(1);
+		a = sq.topEdgeFirst ? 2 : 0;
+		for (b = 0; b < 4; a += 3, ++b)
+			prm[b] = obj.pieceAt(a) >> 1;
+		sq.botEdgeFirst = obj.pieceAt(12) == obj.pieceAt(13);
+		a = sq.botEdgeFirst ? 14 : 12;
+		for (; b < 8; a += 3, ++b)
+			prm[b] = obj.pieceAt(a) >> 1;
+		sq.edgeperm = getNPerm(prm, 8);
+		sq.ml = obj.ml;
+	}
+
+	function FullCube_randomCube(indice) {
+		var f, i, shape, edge, corner, n_edge, n_corner, rnd, m;
+		if (indice === undefined) {
+			indice = rn(3678);
+		}
+		f = new SqCubie;
+		shape = Shape_ShapeIdx[indice];
+		corner = 0x01234567 << 1 | 0x11111111;
+		edge = 0x01234567 << 1;
+		n_corner = n_edge = 8;
+		for (i = 0; i < 24; i++) {
+			if (((shape >> i) & 1) == 0) { //edge
+				rnd = rn(n_edge) << 2;
+				f.setPiece(23 - i, (edge >> rnd) & 0xf);
+				m = (1 << rnd) - 1;
+				edge = (edge & m) + ((edge >> 4) & ~m);
+				--n_edge;
+			} else { //corner
+				rnd = rn(n_corner) << 2;
+				f.setPiece(23 - i, (corner >> rnd) & 0xf);
+				f.setPiece(22 - i, (corner >> rnd) & 0xf);
+				m = (1 << rnd) - 1;
+				corner = (corner & m) + ((corner >> 4) & ~m);
+				--n_corner;
+				++i;
+			}
+		}
+		f.ml = rn(2);
+		return f;
+	}
+
+	function Search_init2(obj) {
+		var corner, edge, i, j, ml, prun;
+		obj.Search_d.copy(obj.Search_c);
+		for (i = 0; i < obj.Search_length1; ++i) {
+			obj.Search_d.doMove(obj.Search_move[i]);
+		}
+		FullCube_getSquare(obj.Search_d, obj.Search_sq);
+		edge = obj.Search_sq.edgeperm;
+		corner = obj.Search_sq.cornperm;
+		ml = obj.Search_sq.ml;
+		prun = Math.max(SquarePrun[obj.Search_sq.edgeperm << 1 | ml], SquarePrun[obj.Search_sq.cornperm << 1 | ml]);
+		for (i = prun; i < obj.Search_maxlen2; ++i) {
+			if (Search_phase2(obj, edge, corner, obj.Search_sq.topEdgeFirst, obj.Search_sq.botEdgeFirst, ml, i, obj.Search_length1, 0)) {
+				for (j = 0; j < i; ++j) {
+					obj.Search_d.doMove(obj.Search_move[obj.Search_length1 + j]);
+				}
+				obj.Search_sol_string = Search_move2string(obj, i + obj.Search_length1);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	function Search_move2string(obj, len) {
+		var s = "";
+		var top = 0,
+			bottom = 0;
+		for (var i = len - 1; i >= 0; i--) {
+			var val = obj.Search_move[i];
+			//console.log(val);
+			if (val > 0) {
+				val = 12 - val;
+				top = (val > 6) ? (val - 12) : val;
+			} else if (val < 0) {
+				val = 12 + val;
+				bottom = (val > 6) ? (val - 12) : val;
+			} else {
+				var twst = "/";
+				if (i == obj.Search_length1 - 1) {
+					twst = "`/`";
+				}
+				if (top == 0 && bottom == 0) {
+					s += twst;
+				} else {
+					s += " (" + top + "," + bottom + ")" + twst;
+				}
+				top = bottom = 0;
+			}
+		}
+		if (top == 0 && bottom == 0) {} else {
+			s += " (" + top + "," + bottom + ") ";
+		}
+		return s; // + " (" + len + "t)";
+	}
+
+	function Search_phase1(obj, shape, prunvalue, maxl, depth, lm) {
+		var m, prunx, shapex;
+		if (prunvalue == 0 && maxl < 4) {
+			return maxl == 0 && Search_init2(obj);
+		}
+		if (lm != 0) {
+			shapex = Shape_TwistMove[shape];
+			prunx = ShapePrun[shapex];
+			if (prunx < maxl) {
+				obj.Search_move[depth] = 0;
+				if (Search_phase1(obj, shapex, prunx, maxl - 1, depth + 1, 0)) {
+					return true;
+				}
+			}
+		}
+		shapex = shape;
+		if (lm <= 0) {
+			m = 0;
+			while (true) {
+				m += Shape_TopMove[shapex];
+				shapex = m >> 4;
+				m &= 15;
+				if (m >= 12) {
+					break;
+				}
+				prunx = ShapePrun[shapex];
+				if (prunx > maxl) {
+					break;
+				} else if (prunx < maxl) {
+					obj.Search_move[depth] = m;
+					if (Search_phase1(obj, shapex, prunx, maxl - 1, depth + 1, 1)) {
+						return true;
+					}
+				}
+			}
+		}
+		shapex = shape;
+		if (lm <= 1) {
+			m = 0;
+			while (true) {
+				m += Shape_BottomMove[shapex];
+				shapex = m >> 4;
+				m &= 15;
+				if (m >= 6) {
+					break;
+				}
+				prunx = ShapePrun[shapex];
+				if (prunx > maxl) {
+					break;
+				} else if (prunx < maxl) {
+					obj.Search_move[depth] = -m;
+					if (Search_phase1(obj, shapex, prunx, maxl - 1, depth + 1, 2)) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	function Search_phase2(obj, edge, corner, topEdgeFirst, botEdgeFirst, ml, maxl, depth, lm) {
+		var botEdgeFirstx, cornerx, edgex, m, prun1, prun2, topEdgeFirstx;
+		if (maxl == 0 && !topEdgeFirst && botEdgeFirst) {
+			return true;
+		}
+		if (lm != 0 && topEdgeFirst == botEdgeFirst) {
+			edgex = Square_TwistMove[edge];
+			cornerx = Square_TwistMove[corner];
+			if (SquarePrun[edgex << 1 | 1 - ml] < maxl && SquarePrun[cornerx << 1 | 1 - ml] < maxl) {
+				obj.Search_move[depth] = 0;
+				if (Search_phase2(obj, edgex, cornerx, topEdgeFirst, botEdgeFirst, 1 - ml, maxl - 1, depth + 1, 0)) {
+					return true;
+				}
+			}
+		}
+		if (lm <= 0) {
+			topEdgeFirstx = !topEdgeFirst;
+			edgex = topEdgeFirstx ? Square_TopMove[edge] : edge;
+			cornerx = topEdgeFirstx ? corner : Square_TopMove[corner];
+			m = topEdgeFirstx ? 1 : 2;
+			prun1 = SquarePrun[edgex << 1 | ml];
+			prun2 = SquarePrun[cornerx << 1 | ml];
+			while (m < 12 && prun1 <= maxl && prun1 <= maxl) {
+				if (prun1 < maxl && prun2 < maxl) {
+					obj.Search_move[depth] = m;
+					if (Search_phase2(obj, edgex, cornerx, topEdgeFirstx, botEdgeFirst, ml, maxl - 1, depth + 1, 1)) {
+						return true;
+					}
+				}
+				topEdgeFirstx = !topEdgeFirstx;
+				if (topEdgeFirstx) {
+					edgex = Square_TopMove[edgex];
+					prun1 = SquarePrun[edgex << 1 | ml];
+					m += 1;
+				} else {
+					cornerx = Square_TopMove[cornerx];
+					prun2 = SquarePrun[cornerx << 1 | ml];
+					m += 2;
+				}
+			}
+		}
+		if (lm <= 1) {
+			botEdgeFirstx = !botEdgeFirst;
+			edgex = botEdgeFirstx ? Square_BottomMove[edge] : edge;
+			cornerx = botEdgeFirstx ? corner : Square_BottomMove[corner];
+			m = botEdgeFirstx ? 1 : 2;
+			prun1 = SquarePrun[edgex << 1 | ml];
+			prun2 = SquarePrun[cornerx << 1 | ml];
+			while (m < (maxl > 6 ? 6 : 12) && prun1 <= maxl && prun1 <= maxl) {
+				if (prun1 < maxl && prun2 < maxl) {
+					obj.Search_move[depth] = -m;
+					if (Search_phase2(obj, edgex, cornerx, topEdgeFirst, botEdgeFirstx, ml, maxl - 1, depth + 1, 2)) {
+						return true;
+					}
+				}
+				botEdgeFirstx = !botEdgeFirstx;
+				if (botEdgeFirstx) {
+					edgex = Square_BottomMove[edgex];
+					prun1 = SquarePrun[edgex << 1 | ml];
+					m += 1;
+				} else {
+					cornerx = Square_BottomMove[cornerx];
+					prun2 = SquarePrun[cornerx << 1 | ml];
+					m += 2;
+				}
+			}
+		}
+		return false;
+	}
+
+	function Search_solution(obj, c) {
+		var shape;
+		obj.Search_c = c;
+		shape = FullCube_getShapeIdx(c);
+		//console.log(shape);
+		for (obj.Search_length1 = ShapePrun[shape]; obj.Search_length1 < 100; ++obj.Search_length1) {
+			//console.log(obj.Search_length1);
+			obj.Search_maxlen2 = Math.min(32 - obj.Search_length1, 17);
+			if (Search_phase1(obj, shape, ShapePrun[shape], obj.Search_length1, 0, -1)) {
+				break;
+			}
+		}
+		return obj.Search_sol_string;
+	}
+
+	function Search_Search() {
+		this.Search_move = [];
+		this.Search_d = new SqCubie;
+		this.Search_sq = new Square_Square;
+	}
+
+	function Search() {}
+
+	_ = Search_Search.prototype = Search.prototype;
+	_.Search_c = null;
+	_.Search_length1 = 0;
+	_.Search_maxlen2 = 0;
+	_.Search_sol_string = null;
+
+	function Shape_$clinit() {
+		Shape_$clinit = function() {};
+		Shape_halflayer = [0, 3, 6, 12, 15, 24, 27, 30, 48, 51, 54, 60, 63];
+		Shape_ShapeIdx = [];
+		ShapePrun = [];
+		Shape_TopMove = [];
+		Shape_BottomMove = [];
+		Shape_TwistMove = [];
+		Shape_init();
+	}
+
+	function Shape_bottomMove(obj) {
+		var move, moveParity;
+		move = 0;
+		moveParity = 0;
+		do {
+			if ((obj.bottom & 2048) == 0) {
+				move += 1;
+				obj.bottom = obj.bottom << 1;
+			} else {
+				move += 2;
+				obj.bottom = obj.bottom << 2 ^ 12291;
+			}
+			moveParity = 1 - moveParity;
+		}
+		while ((bitCount(obj.bottom & 63) & 1) != 0);
+		(bitCount(obj.bottom) & 2) == 0 && (obj.Shape_parity ^= moveParity);
+		return move;
+	}
+
+	function Shape_getIdx(obj) {
+		var ret;
+		ret = binarySearch(Shape_ShapeIdx, obj.top << 12 | obj.bottom) << 1 | obj.Shape_parity;
+		return ret;
+	}
+
+	function Shape_setIdx(obj, idx) {
+		obj.Shape_parity = idx & 1;
+		obj.top = Shape_ShapeIdx[idx >> 1];
+		obj.bottom = obj.top & 4095;
+		obj.top >>= 12;
+	}
+
+	function Shape_topMove(obj) {
+		var move, moveParity;
+		move = 0;
+		moveParity = 0;
+		do {
+			if ((obj.top & 2048) == 0) {
+				move += 1;
+				obj.top = obj.top << 1;
+			} else {
+				move += 2;
+				obj.top = obj.top << 2 ^ 12291;
+			}
+			moveParity = 1 - moveParity;
+		}
+		while ((bitCount(obj.top & 63) & 1) != 0);
+		(bitCount(obj.top) & 2) == 0 && (obj.Shape_parity ^= moveParity);
+		return move;
+	}
+
+	function Shape_Shape() {}
+
+	function Shape_getShape2Idx(shp) {
+		var ret;
+		ret = binarySearch(Shape_ShapeIdx, shp & 0xffffff) << 1 | shp >> 24;
+		return ret;
+	}
+
+	function Shape_init() {
+		var count, depth, dl, done, done0, dr, i, idx, m, s, ul, ur, value, p1, p3, temp;
+		count = 0;
+		for (i = 0; i < 28561; ++i) {
+			dr = Shape_halflayer[i % 13];
+			dl = Shape_halflayer[~~(i / 13) % 13];
+			ur = Shape_halflayer[~~(~~(i / 13) / 13) % 13];
+			ul = Shape_halflayer[~~(~~(~~(i / 13) / 13) / 13)];
+			value = ul << 18 | ur << 12 | dl << 6 | dr;
+			bitCount(value) == 16 && (Shape_ShapeIdx[count++] = value);
+		}
+		s = new Shape_Shape;
+		for (i = 0; i < 7356; ++i) {
+			Shape_setIdx(s, i);
+			Shape_TopMove[i] = Shape_topMove(s);
+			Shape_TopMove[i] |= Shape_getIdx(s) << 4;
+			Shape_setIdx(s, i);
+			Shape_BottomMove[i] = Shape_bottomMove(s);
+			Shape_BottomMove[i] |= Shape_getIdx(s) << 4;
+			Shape_setIdx(s, i);
+			temp = s.top & 63;
+			p1 = bitCount(temp);
+			p3 = bitCount(s.bottom & 4032);
+			s.Shape_parity ^= 1 & (p1 & p3) >> 1;
+			s.top = s.top & 4032 | s.bottom >> 6 & 63;
+			s.bottom = s.bottom & 63 | temp << 6;
+			Shape_TwistMove[i] = Shape_getIdx(s);
+		}
+		for (i = 0; i < 7536; ++i) {
+			ShapePrun[i] = -1;
+		}
+		ShapePrun[Shape_getShape2Idx(14378715)] = 0;
+		ShapePrun[Shape_getShape2Idx(31157686)] = 0;
+		ShapePrun[Shape_getShape2Idx(23967451)] = 0;
+		ShapePrun[Shape_getShape2Idx(7191990)] = 0;
+		done = 4;
+		done0 = 0;
+		depth = -1;
+		while (done != done0) {
+			done0 = done;
+			++depth;
+			for (i = 0; i < 7536; ++i) {
+				if (ShapePrun[i] == depth) {
+					m = 0;
+					idx = i;
+					do {
+						idx = Shape_TopMove[idx];
+						m += idx & 15;
+						idx >>= 4;
+						if (ShapePrun[idx] == -1) {
+							++done;
+							ShapePrun[idx] = depth + 1;
+						}
+					}
+					while (m != 12);
+					m = 0;
+					idx = i;
+					do {
+						idx = Shape_BottomMove[idx];
+						m += idx & 15;
+						idx >>= 4;
+						if (ShapePrun[idx] == -1) {
+							++done;
+							ShapePrun[idx] = depth + 1;
+						}
+					}
+					while (m != 12);
+					idx = Shape_TwistMove[i];
+					if (ShapePrun[idx] == -1) {
+						++done;
+						ShapePrun[idx] = depth + 1;
+					}
+				}
+			}
+		}
+	}
+
+	function Shape() {}
+
+	_ = Shape_Shape.prototype = Shape.prototype;
+	_.bottom = 0;
+	_.Shape_parity = 0;
+	_.top = 0;
+	var Shape_BottomMove, Shape_ShapeIdx, ShapePrun, Shape_TopMove, Shape_TwistMove, Shape_halflayer;
+
+	function Square_$clinit() {
+		Square_$clinit = function() {};
+		SquarePrun = [];
+		Square_TwistMove = [];
+		Square_TopMove = [];
+		Square_BottomMove = [];
+		Square_init();
+	}
+
+	function Square_Square() {}
+
+	function Square_init() {
+		var check, depth, done, find, i, idx, idxx, inv, m, ml, pos;
+		pos = [];
+		for (i = 0; i < 40320; ++i) {
+			setNPerm(pos, i, 8);
+			circle(pos, 2, 4)(pos, 3, 5);
+			Square_TwistMove[i] = getNPerm(pos, 8);
+			setNPerm(pos, i, 8);
+			circle(pos, 0, 3, 2, 1);
+			Square_TopMove[i] = getNPerm(pos, 8);
+			setNPerm(pos, i, 8);
+			circle(pos, 4, 7, 6, 5);
+			Square_BottomMove[i] = getNPerm(pos, 8);
+		}
+		for (i = 0; i < 80640; ++i) {
+			SquarePrun[i] = -1;
+		}
+		SquarePrun[0] = 0;
+		depth = 0;
+		done = 1;
+		while (done < 80640) {
+			//console.log(done);
+			inv = depth >= 11;
+			find = inv ? -1 : depth;
+			check = inv ? depth : -1;
+			++depth;
+			OUT: for (i = 0; i < 80640; ++i) {
+				if (SquarePrun[i] == find) {
+					idx = i >> 1;
+					ml = i & 1;
+					idxx = Square_TwistMove[idx] << 1 | 1 - ml;
+					if (SquarePrun[idxx] == check) {
+						++done;
+						SquarePrun[inv ? i : idxx] = depth;
+						if (inv)
+							continue OUT;
+					}
+					idxx = idx;
+					for (m = 0; m < 4; ++m) {
+						idxx = Square_TopMove[idxx];
+						if (SquarePrun[idxx << 1 | ml] == check) {
+							++done;
+							SquarePrun[inv ? i : idxx << 1 | ml] = depth;
+							if (inv)
+								continue OUT;
+						}
+					}
+					for (m = 0; m < 4; ++m) {
+						idxx = Square_BottomMove[idxx];
+						if (SquarePrun[idxx << 1 | ml] == check) {
+							++done;
+							SquarePrun[inv ? i : idxx << 1 | ml] = depth;
+							if (inv)
+								continue OUT;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	function Square() {}
+
+	_ = Square_Square.prototype = Square.prototype;
+	_.botEdgeFirst = false;
+	_.cornperm = 0;
+	_.edgeperm = 0;
+	_.ml = 0;
+	_.topEdgeFirst = false;
+	var Square_BottomMove, SquarePrun, Square_TopMove, Square_TwistMove;
+
+	function bitCount(x) {
+		x -= x >> 1 & 1431655765;
+		x = (x >> 2 & 858993459) + (x & 858993459);
+		x = (x >> 4) + x & 252645135;
+		x += x >> 8;
+		x += x >> 16;
+		return x & 63;
+	}
+
+	function binarySearch(sortedArray, key) {
+		var high, low, mid, midVal;
+		low = 0;
+		high = sortedArray.length - 1;
+		while (low <= high) {
+			mid = low + ((high - low) >> 1);
+			midVal = sortedArray[mid];
+			if (midVal < key) {
+				low = mid + 1;
+			} else if (midVal > key) {
+				high = mid - 1;
+			} else {
+				return mid;
+			}
+		}
+		return -low - 1;
+	}
+
+	var cspcases = [0, 1, 3, 18, 19, 1004, 1005, 1006, 1007, 1008, 1009, 1011, 1015, 1016, 1018, 1154, 1155, 1156, 1157, 1158, 1159, 1161, 1166, 1168, 424, 425, 426, 427, 428, 429, 431, 436, 95, 218, 341, 482, 528, 632, 1050, 342, 343, 345, 346, 348, 353, 223, 487, 533, 535, 1055, 219, 225, 483, 489, 639, 1051, 1057, 486, 1054, 1062, 6, 21, 34, 46, 59, 71, 144, 157, 182, 305, 7, 22, 35, 47, 60, 72, 145, 158, 183, 306, 8, 23, 36, 48, 61, 73, 146, 159, 184, 307];
+
+	function CSPInit() {
+		CSPInit = function() {};
+		var s = new Shape_Shape;
+		for (var csp = 0; csp < cspcases.length; csp++) {
+			var curCases = [cspcases[csp]];
+			for (var i = 0; i < curCases.length; i++) {
+				var shape = curCases[i];
+				do {
+					shape = Shape_TopMove[shape << 1] >> 5;
+					if (curCases.indexOf(shape) == -1) {
+						curCases.push(shape);
+					}
+				} while (shape != curCases[i]);
+				do {
+					shape = Shape_BottomMove[shape << 1] >> 5;
+					if (curCases.indexOf(shape) == -1) {
+						curCases.push(shape);
+					}
+				} while (shape != curCases[i]);
+				Shape_setIdx(s, shape << 1);
+				var tmp = s.top;
+				s.top = s.bottom;
+				s.bottom = tmp;
+				shape = Shape_getIdx(s) >> 1;
+				if (curCases.indexOf(shape) == -1) {
+					curCases.push(shape);
+				}
+			}
+			cspcases[csp] = curCases;
+		}
+	}
+
+	var cspfilter = ['Star-x8', 'Star-x71', 'Star-x62', 'Star-x44', 'Star-x53', 'Square-Scallop', 'Square-rPawn', 'Square-Shield', 'Square-Barrel', 'Square-rFist', 'Square-Mushroom', 'Square-lPawn', 'Square-Square', 'Square-lFist', 'Square-Kite', 'Kite-Scallop', 'Kite-rPawn', 'Kite-Shield', 'Kite-Barrel', 'Kite-rFist', 'Kite-Mushroom', 'Kite-lPawn', 'Kite-lFist', 'Kite-Kite', 'Barrel-Scallop', 'Barrel-rPawn', 'Barrel-Shield', 'Barrel-Barrel', 'Barrel-rFist', 'Barrel-Mushroom', 'Barrel-lPawn', 'Barrel-lFist', 'Scallop-Scallop', 'Scallop-rPawn', 'Scallop-Shield', 'Scallop-rFist', 'Scallop-Mushroom', 'Scallop-lPawn', 'Scallop-lFist', 'Shield-rPawn', 'Shield-Shield', 'Shield-rFist', 'Shield-Mushroom', 'Shield-lPawn', 'Shield-lFist', 'Mushroom-rPawn', 'Mushroom-rFist', 'Mushroom-Mushroom', 'Mushroom-lPawn', 'Mushroom-lFist', 'Pawn-rPawn-rPawn', 'Pawn-rPawn-lPawn', 'Pawn-rPawn-rFist', 'Pawn-lPawn-rFist', 'Pawn-lPawn-lPawn', 'Pawn-rPawn-lFist', 'Pawn-lPawn-lFist', 'Fist-rFist-rFist', 'Fist-lFist-rFist', 'Fist-lFist-lFist', 'Pair-x6', 'Pair-r42', 'Pair-x411', 'Pair-r51', 'Pair-l42', 'Pair-l51', 'Pair-x33', 'Pair-x312', 'Pair-x321', 'Pair-x222', 'L-x6', 'L-r42', 'L-x411', 'L-r51', 'L-l42', 'L-l51', 'L-x33', 'L-x312', 'L-x321', 'L-x222', 'Line-x6', 'Line-r42', 'Line-x411', 'Line-r51', 'Line-l42', 'Line-l51', 'Line-x33', 'Line-x312', 'Line-x321', 'Line-x222'];
+
+	return {
+		SqCubie: SqCubie,
+		// 各ケースに含まれる形状（Shape_ShapeIdx の値: bit (23 - pos) = 1 ならコーナー）
+		getCaseShapes: function() {
+			Shape_$clinit();
+			CSPInit();
+			return cspcases.map(function(list) {
+				return list.map(function(i) { return Shape_ShapeIdx[i]; });
+			});
+		},
+		caseNames: cspfilter
+	};
+})(mathlib.setNPerm, mathlib.getNPerm, mathlib.circle, mathlib.rn);
+</script>
+<script>
+"use strict";
+var sqcs = (function() {
+	var SqCubie = sq1.SqCubie;
+	var NAMES = sq1.caseNames;
+	var CASE_SHAPES = null;
+	var dist = null, rep = null;
+
+	// 形状（コーナーのある位置の24bit）。ひねれる状態ならコーナーの組は一意に決まる
+	function shapeOf(cc) {
+		var v = 0;
+		for (var pos = 0; pos < 24; pos++) {
+			if (cc.pieceAt(pos) & 1) v |= 1 << (23 - pos);
+		}
+		return v;
+	}
+
+	function twistable(cc) {
+		return cc.pieceAt(0) != cc.pieceAt(11) && cc.pieceAt(5) != cc.pieceAt(6) &&
+			cc.pieceAt(12) != cc.pieceAt(23) && cc.pieceAt(17) != cc.pieceAt(18);
+	}
+
+	function turn(cc, k, j) {
+		var c = new SqCubie;
+		c.copy(cc);
+		if (k) c.doMove(k);
+		if (j) c.doMove(-j);
+		return c;
+	}
+
+	// 各層を左右反転した形状
+	function mirrorShape(v) {
+		var m = 0;
+		for (var pos = 0; pos < 24; pos++) {
+			if (v >> (23 - pos) & 1) {
+				var mp = pos < 12 ? 11 - pos : 35 - pos;
+				m |= 1 << (23 - mp);
+			}
+		}
+		return m;
+	}
+
+	// 揃った状態からの距離（/ の回数）を全形状について求める
+	function init() {
+		if (dist) return;
+		CASE_SHAPES = sq1.getCaseShapes();
+		dist = {};
+		rep = {};
+		var start = new SqCubie;
+		var queue = [shapeOf(start)];
+		dist[queue[0]] = 0;
+		rep[queue[0]] = start;
+		for (var qi = 0; qi < queue.length; qi++) {
+			var cur = queue[qi];
+			for (var k = 0; k < 12; k++) {
+				for (var j = 0; j < 12; j++) {
+					var c = turn(rep[cur], k, j);
+					if (!twistable(c)) continue;
+					c.doMove(0);
+					var key = shapeOf(c);
+					if (dist[key] === undefined) {
+						dist[key] = dist[cur] + 1;
+						rep[key] = c;
+						queue.push(key);
+					}
+				}
+			}
+		}
+	}
+
+	function rndEl(arr) {
+		return arr[~~(Math.random() * arr.length)];
+	}
+
+	function fmtTurn(x) {
+		return x > 6 ? x - 12 : x;
+	}
+
+	// 揃った状態から指定ケースの形状にする最短手順（/ の回数が最小）をランダムに1つ選ぶ
+	function genMoves(caseIdx) {
+		init();
+		// ケース内の配置（層のずれ違い）のうち、最も近いものを目標にする
+		var minD = Math.min.apply(null, CASE_SHAPES[caseIdx].map(function(v) { return dist[v]; }));
+		var cur = rndEl(CASE_SHAPES[caseIdx].filter(function(v) { return dist[v] == minD; }));
+		var moves = [];
+		while (dist[cur] > 0) {
+			var u = turn(rep[cur], 0, 0);
+			u.doMove(0);
+			var cands = [];
+			for (var k = 0; k < 12; k++) {
+				for (var j = 0; j < 12; j++) {
+					var c = turn(u, k, j);
+					if (!twistable(c)) continue;
+					var key = shapeOf(c);
+					if (dist[key] == dist[cur] - 1) cands.push({ key: key, k: k, j: j });
+				}
+			}
+			var p = rndEl(cands);
+			moves.unshift([(12 - p.k) % 12, (12 - p.j) % 12]);
+			cur = p.key;
+		}
+		return moves;
+	}
+
+	var lastScramble = "";
+
+	function genScramble(caseIdx) {
+		var scr;
+		for (var t = 0; t < 20; t++) {
+			scr = genMoves(caseIdx).map(function(m) {
+				return m[0] || m[1] ? "(" + fmtTurn(m[0]) + "," + fmtTurn(m[1]) + ")/" : "/";
+			}).join(" ");
+			if (scr != lastScramble) break;
+		}
+		lastScramble = scr;
+		return scr;
+	}
+
+	// 左右反転で移り合うケースをまとめたグループ
+	function getGroups() {
+		init();
+		var shapeToCase = {};
+		CASE_SHAPES.forEach(function(list, c) {
+			list.forEach(function(v) { shapeToCase[v] = c; });
+		});
+		var seen = [];
+		var groups = [];
+		NAMES.forEach(function(name, c) {
+			if (seen[c]) return;
+			var mc = shapeToCase[mirrorShape(CASE_SHAPES[c][0])];
+			seen[c] = seen[mc] = true;
+			if (mc == c) {
+				groups.push({ label: name, members: [c] });
+				return;
+			}
+			// 例: "Square-rPawn / lPawn"
+			var ta = name.split("-"), tb = NAMES[mc].split("-");
+			var diff = tb.filter(function(t, i) { return t != ta[i]; });
+			groups.push({ label: name + " / " + diff.join("-"), members: [c, mc] });
+		});
+		return groups;
+	}
+
+	function categoryOf(caseIdx) {
+		return NAMES[caseIdx].split("-")[0];
+	}
+
+	return {
+		NAMES: NAMES,
+		init: init,
+		getGroups: getGroups,
+		categoryOf: categoryOf,
+		genScramble: genScramble
+	};
+})();
+</script>
+<script>
+"use strict";
+(function() {
+	if (typeof document == "undefined") return;
+	var NAMES = sqcs.NAMES;
+	// Square-Square は既にキューブ形状なので出題対象外
+	var EXCLUDE = ["Square-Square"];
+	var GROUPS = sqcs.getGroups().filter(function(g) {
+		return EXCLUDE.indexOf(NAMES[g.members[0]]) == -1;
+	});
+	var CASE_IDX = [];
+	GROUPS.forEach(function(g) { CASE_IDX = CASE_IDX.concat(g.members); });
+	CASE_IDX.sort(function(a, b) { return a - b; });
+	var groupOfName = {};
+	GROUPS.forEach(function(g) {
+		g.members.forEach(function(c) { groupOfName[NAMES[c]] = g.label; });
+	});
+	var CATS = [];
+	CASE_IDX.forEach(function(c) {
+		var cat = sqcs.categoryOf(c);
+		if (CATS.indexOf(cat) == -1) CATS.push(cat);
+	});
+
+	// ---- 選択状態 ({ケース名: true/false}) ----
+	var SEL_KEY = "sqcs_selection";
+	var sel = null;
+	try {
+		sel = JSON.parse(localStorage.getItem(SEL_KEY));
+	} catch (e) {}
+	if (!sel || typeof sel != "object") sel = {};
+	CASE_IDX.forEach(function(c) {
+		if (typeof sel[NAMES[c]] != "boolean") sel[NAMES[c]] = true;
+	});
+
+	function saveSel() {
+		try {
+			localStorage.setItem(SEL_KEY, JSON.stringify(sel));
+		} catch (e) {}
+	}
+
+	var groupBoxes = [];
+	var caseBoxes = [];
+
+	function makeBox(parent, text, onChange) {
+		var label = document.createElement("label");
+		var cb = document.createElement("input");
+		cb.type = "checkbox";
+		cb.addEventListener("change", onChange);
+		label.appendChild(cb);
+		label.appendChild(document.createTextNode(" " + text));
+		parent.appendChild(label);
+		return cb;
+	}
+
+	function makeRow(container, cat) {
+		var row = document.createElement("div");
+		row.className = "catrow";
+		container.appendChild(row);
+		return row;
+	}
+
+	// グループ選択: カテゴリごとに1行
+	var groupsDiv = document.getElementById("groups");
+	CATS.forEach(function(cat) {
+		var row = makeRow(groupsDiv, cat);
+		var catSpan = document.createElement("span");
+		catSpan.className = "cat";
+		row.appendChild(catSpan);
+		var catMembers = CASE_IDX.filter(function(c) { return sqcs.categoryOf(c) == cat; });
+		var catCb = makeBox(catSpan, cat, function() {
+			catMembers.forEach(function(c) { sel[NAMES[c]] = catCb.checked; });
+			refresh();
+		});
+		groupBoxes.push({ cb: catCb, members: catMembers });
+		GROUPS.forEach(function(g) {
+			if (sqcs.categoryOf(g.members[0]) != cat) return;
+			var cb = makeBox(row, g.label, function() {
+				g.members.forEach(function(c) { sel[NAMES[c]] = cb.checked; });
+				refresh();
+			});
+			groupBoxes.push({ cb: cb, members: g.members });
+		});
+	});
+
+	// 個別選択
+	var combosDiv = document.getElementById("combos");
+	CATS.forEach(function(cat) {
+		var row = makeRow(combosDiv, cat);
+		CASE_IDX.forEach(function(c) {
+			if (sqcs.categoryOf(c) != cat) return;
+			var cb = makeBox(row, NAMES[c], function() {
+				sel[NAMES[c]] = cb.checked;
+				refresh();
+			});
+			caseBoxes.push({ cb: cb, c: c });
+		});
+	});
+
+	function refresh() {
+		groupBoxes.forEach(function(g) {
+			var n = g.members.filter(function(c) { return sel[NAMES[c]]; }).length;
+			g.cb.checked = n == g.members.length;
+			g.cb.indeterminate = n > 0 && n < g.members.length;
+		});
+		caseBoxes.forEach(function(x) { x.cb.checked = sel[NAMES[x.c]]; });
+		document.getElementById("count").textContent =
+			"選択中: " + CASE_IDX.filter(function(c) { return sel[NAMES[c]]; }).length + " / " + CASE_IDX.length + " ケース";
+		saveSel();
+	}
+
+	var current = null;
+
+	function next() {
+		var pool = CASE_IDX.filter(function(c) { return sel[NAMES[c]]; });
+		if (pool.length == 0) {
+			document.getElementById("info").textContent = "ケースを1つ以上選択してください";
+			return;
+		}
+		// 選択したケースからランダムに1つ選ぶ
+		var c = pool[~~(Math.random() * pool.length)];
+		var scrEl = document.getElementById("scramble");
+		if (current) {
+			document.getElementById("prev").textContent = "前 [" + current.name + "]: " + current.scr;
+		}
+		document.getElementById("info").textContent = "";
+		current = { name: NAMES[c], scr: sqcs.genScramble(c) };
+		scrEl.textContent = current.scr;
+	}
+
+	// ---- 記録 ({t: ms, c: ケース名}) ----
+	var STORAGE_KEY = "sqcs_times";
+	var times = [];
+	try {
+		times = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+	} catch (e) {
+		times = [];
+	}
+
+	function saveTimes() {
+		try {
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(times));
+		} catch (e) {}
+	}
+
+	function fmt(ms) {
+		if (ms == null) return "-";
+		var cs = Math.floor(ms / 10);
+		var s = Math.floor(cs / 100);
+		var m = Math.floor(s / 60);
+		var rest = (s % 60) + "." + ("0" + cs % 100).slice(-2);
+		return m > 0 ? m + ":" + ("0" + rest).slice(-5) : rest;
+	}
+
+	// 直近n件の平均（最良・最悪を除く）
+	function aoN(arr, n) {
+		if (arr.length < n) return null;
+		var a = arr.slice(-n).sort(function(x, y) { return x - y; });
+		a = a.slice(1, n - 1);
+		return a.reduce(function(p, c) { return p + c; }, 0) / a.length;
+	}
+
+	function meanOf(arr) {
+		return arr.length ? arr.reduce(function(p, c) { return p + c; }, 0) / arr.length : null;
+	}
+
+	function bestOf(arr) {
+		return arr.length ? Math.min.apply(null, arr) : null;
+	}
+
+	// ---- パターン別集計 ----
+	var MODE_KEY = "sqcs_statmode";
+	var statMode = "group";
+	try {
+		var m = localStorage.getItem(MODE_KEY);
+		if (m == "cat" || m == "group" || m == "case") statMode = m;
+	} catch (e) {}
+
+	// カテゴリ / 左右まとめ / 個別
+	function patternKey(r) {
+		if (statMode == "cat") return r.c.split("-")[0];
+		if (statMode == "group") return groupOfName[r.c] || r.c;
+		return r.c;
+	}
+
+	function renderPatterns() {
+		var groups = {};
+		times.forEach(function(r) {
+			var key = patternKey(r);
+			(groups[key] = groups[key] || []).push(r.t);
+		});
+		var rows = Object.keys(groups).map(function(key) {
+			return { key: key, ts: groups[key], mean: meanOf(groups[key]) };
+		});
+		// 平均の遅い順（苦手なパターンが上）
+		rows.sort(function(x, y) { return y.mean - x.mean; });
+		var html = ["<tr><th>パターン</th><th>回数</th><th>平均</th><th>ベスト</th><th>ao5</th><th></th></tr>"];
+		rows.forEach(function(row) {
+			html.push("<tr><td>" + row.key + "</td><td>" + row.ts.length + "</td><td>" + fmt(row.mean) +
+				"</td><td>" + fmt(bestOf(row.ts)) + "</td><td>" + fmt(aoN(row.ts, 5)) +
+				"</td><td><button class=\"small\" data-key=\"" + row.key + "\">リセット</button></td></tr>");
+		});
+		document.getElementById("patStats").innerHTML = rows.length ? html.join("") : "";
+	}
+
+	function renderTimes() {
+		var ts = times.map(function(r) { return r.t; });
+		document.getElementById("stats").textContent =
+			"solves: " + ts.length + "  best: " + fmt(bestOf(ts)) + "  ao5: " + fmt(aoN(ts, 5)) +
+			"  ao12: " + fmt(aoN(ts, 12)) + "  mean: " + fmt(meanOf(ts));
+		renderPatterns();
+		var html = [];
+		for (var i = times.length - 1; i >= 0; i--) {
+			html.push((i + 1) + ". " + fmt(times[i].t) + "  [" + times[i].c + "]");
+		}
+		document.getElementById("times").innerHTML = html.join("<br>");
+	}
+
+	// ---- タイマー ----
+	var HOLD_MS = 300;
+	var timerEl = document.getElementById("timer");
+	var state = "idle"; // idle / holding / ready / running / stopped
+	var holdTimer = null;
+	var startTime = 0;
+	var rafId = null;
+
+	function tick() {
+		timerEl.textContent = fmt(performance.now() - startTime);
+		rafId = requestAnimationFrame(tick);
+	}
+
+	function pressStart() {
+		if (state != "idle") return;
+		state = "holding";
+		timerEl.className = "hold";
+		holdTimer = setTimeout(function() {
+			if (state == "holding") {
+				state = "ready";
+				timerEl.className = "ready";
+				timerEl.textContent = fmt(0);
+			}
+		}, HOLD_MS);
+	}
+
+	function pressEnd() {
+		clearTimeout(holdTimer);
+		if (state == "ready") {
+			state = "running";
+			timerEl.className = "";
+			document.body.classList.add("running");
+			startTime = performance.now();
+			tick();
+		} else if (state == "holding") {
+			state = "idle";
+			timerEl.className = "";
+		} else if (state == "stopped") {
+			state = "idle";
+		}
+	}
+
+	function stopTimer() {
+		var t = performance.now() - startTime;
+		cancelAnimationFrame(rafId);
+		state = "stopped";
+		document.body.classList.remove("running");
+		timerEl.textContent = fmt(t);
+		times.push({ t: Math.round(t), c: current.name });
+		saveTimes();
+		renderTimes();
+		next();
+	}
+
+	document.addEventListener("keydown", function(e) {
+		if (state == "running") {
+			e.preventDefault();
+			stopTimer();
+			return;
+		}
+		if (e.code == "Space") {
+			e.preventDefault();
+			if (!e.repeat) pressStart();
+		} else if (e.code == "ArrowRight" && state == "idle") {
+			next();
+		}
+	});
+	document.addEventListener("keyup", function(e) {
+		if (e.code == "Space") {
+			e.preventDefault();
+			pressEnd();
+		} else if (state == "stopped") {
+			state = "idle";
+		}
+	});
+	timerEl.addEventListener("touchstart", function(e) {
+		e.preventDefault();
+		if (state == "running") {
+			stopTimer();
+		} else {
+			pressStart();
+		}
+	});
+	timerEl.addEventListener("touchend", function(e) {
+		e.preventDefault();
+		pressEnd();
+	});
+
+	document.getElementById("next").addEventListener("click", function(e) {
+		next();
+		e.target.blur();
+	});
+	document.getElementById("all").addEventListener("click", function(e) {
+		CASE_IDX.forEach(function(c) { sel[NAMES[c]] = true; });
+		refresh();
+		e.target.blur();
+	});
+	document.getElementById("clear").addEventListener("click", function(e) {
+		CASE_IDX.forEach(function(c) { sel[NAMES[c]] = false; });
+		refresh();
+		e.target.blur();
+	});
+	document.getElementById("detail").addEventListener("click", function(e) {
+		var open = document.getElementById("detailWrap").classList.toggle("open");
+		e.target.textContent = open ? "個別選択 ▲" : "個別選択 ▼";
+		e.target.blur();
+	});
+	document.getElementById("dellast").addEventListener("click", function(e) {
+		times.pop();
+		saveTimes();
+		renderTimes();
+		e.target.blur();
+	});
+	document.getElementById("delall").addEventListener("click", function(e) {
+		if (times.length && confirm("全ての記録を削除しますか？")) {
+			times = [];
+			saveTimes();
+			renderTimes();
+		}
+		e.target.blur();
+	});
+	var modeSel = document.getElementById("statMode");
+	modeSel.value = statMode;
+	modeSel.addEventListener("change", function() {
+		statMode = modeSel.value;
+		try {
+			localStorage.setItem(MODE_KEY, statMode);
+		} catch (e) {}
+		renderPatterns();
+		modeSel.blur();
+	});
+	// パターンごとの記録リセット
+	document.getElementById("patStats").addEventListener("click", function(e) {
+		var key = e.target.getAttribute("data-key");
+		if (!key) return;
+		if (confirm("「" + key + "」の記録を削除しますか？")) {
+			times = times.filter(function(r) { return patternKey(r) != key; });
+			saveTimes();
+			renderTimes();
+		}
+		e.target.blur();
+	});
+	// チェックボックス操作後にスペースでタイマーを使えるようフォーカスを外す
+	document.querySelectorAll(".cases").forEach(function(t) {
+		t.addEventListener("click", function(e) {
+			if (e.target.tagName == "INPUT") setTimeout(function() { e.target.blur(); }, 0);
+		});
+	});
+	refresh();
+	renderTimes();
+	next();
+})();
+</script>
+</body>
+</html>
