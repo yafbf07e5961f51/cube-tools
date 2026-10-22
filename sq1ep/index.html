@@ -30,6 +30,12 @@ button { font-size: 16px; padding: 6px 16px; margin-right: 8px; margin-bottom: 4
 #timer.ready { color: #34c759; }
 #timer.hold { color: #ff3b30; }
 #stats { font-family: monospace; font-size: 16px; margin-bottom: 8px; }
+select { font-size: 15px; }
+table.stat { border-collapse: collapse; margin-bottom: 12px; font-family: monospace; font-size: 15px; }
+table.stat th, table.stat td { padding: 3px 10px; text-align: right; border-bottom: 1px solid #333; }
+table.stat th { color: #aaa; font-weight: normal; }
+table.stat td:first-child, table.stat th:first-child { text-align: left; }
+button.small { font-size: 13px; padding: 2px 8px; margin: 0; }
 #times { font-family: monospace; font-size: 16px; color: #ccc; max-height: 300px; overflow-y: auto; }
 body.running .hide-running { visibility: hidden; }
 footer { margin-top: 24px; font-size: 12px; color: #888; }
@@ -63,6 +69,10 @@ footer a { color: #aaa; }
   <button id="dellast">最後の記録を削除</button>
   <button id="delall">全削除</button>
 </div>
+<div class="controls">パターン別集計:
+  <select id="statMode"><option value="group">グループ（上下・±をまとめる）</option><option value="combo">個別（U層 / D層）</option></select>
+</div>
+<table class="stat" id="patStats"></table>
 <div id="times"></div>
 <footer>Scrambler: Square-1 solver from <a href="https://github.com/cs0x7f/cstimer">csTimer</a> (GPL-3.0) / <a href="../">Home</a></footer>
 </div>
@@ -1049,7 +1059,7 @@ var sq1ep = (function() {
 		scrEl.textContent = current.scr;
 	}
 
-	// ---- 記録 ----
+	// ---- 記録 ({t: ms, u: U層ケース, d: D層ケース}) ----
 	var STORAGE_KEY = "sq1ep_times";
 	var times = [];
 	try {
@@ -1057,6 +1067,8 @@ var sq1ep = (function() {
 	} catch (e) {
 		times = [];
 	}
+	// 旧形式（数値のみ）の記録はケース不明として読み込む
+	times = times.map(function(x) { return typeof x == "number" ? { t: x, u: null, d: null } : x; });
 
 	function saveTimes() {
 		try {
@@ -1074,22 +1086,69 @@ var sq1ep = (function() {
 	}
 
 	// 直近n件の平均（最良・最悪を除く）
-	function aoN(n) {
-		if (times.length < n) return null;
-		var a = times.slice(-n).slice().sort(function(x, y) { return x - y; });
+	function aoN(arr, n) {
+		if (arr.length < n) return null;
+		var a = arr.slice(-n).sort(function(x, y) { return x - y; });
 		a = a.slice(1, n - 1);
 		return a.reduce(function(p, c) { return p + c; }, 0) / a.length;
 	}
 
+	function meanOf(arr) {
+		return arr.length ? arr.reduce(function(p, c) { return p + c; }, 0) / arr.length : null;
+	}
+
+	function bestOf(arr) {
+		return arr.length ? Math.min.apply(null, arr) : null;
+	}
+
+	// ---- パターン別集計 ----
+	var MODE_KEY = "sq1ep_statmode";
+	var statMode = "group";
+	try {
+		statMode = localStorage.getItem(MODE_KEY) == "combo" ? "combo" : "group";
+	} catch (e) {}
+
+	// グループ: 上下の入れ替え・+/-の違いを同一視 / 個別: U層 / D層
+	function patternKey(r) {
+		if (!r.u) return null;
+		if (statMode == "combo") return r.u + " / " + r.d;
+		var a = sq1ep.baseOf(r.u), b = sq1ep.baseOf(r.d);
+		if (BASES.indexOf(a) > BASES.indexOf(b)) {
+			var tmp = a; a = b; b = tmp;
+		}
+		return a + " × " + b;
+	}
+
+	function renderPatterns() {
+		var groups = {};
+		times.forEach(function(r) {
+			var key = patternKey(r);
+			if (key == null) return;
+			(groups[key] = groups[key] || []).push(r.t);
+		});
+		var rows = Object.keys(groups).map(function(key) {
+			return { key: key, ts: groups[key], mean: meanOf(groups[key]) };
+		});
+		// 平均の遅い順（苦手なパターンが上）
+		rows.sort(function(x, y) { return y.mean - x.mean; });
+		var html = ["<tr><th>パターン</th><th>回数</th><th>平均</th><th>ベスト</th><th>ao5</th><th></th></tr>"];
+		rows.forEach(function(row) {
+			html.push("<tr><td>" + row.key + "</td><td>" + row.ts.length + "</td><td>" + fmt(row.mean) +
+				"</td><td>" + fmt(bestOf(row.ts)) + "</td><td>" + fmt(aoN(row.ts, 5)) +
+				"</td><td><button class=\"small\" data-key=\"" + row.key + "\">リセット</button></td></tr>");
+		});
+		document.getElementById("patStats").innerHTML = rows.length ? html.join("") : "";
+	}
+
 	function renderTimes() {
-		var best = times.length ? Math.min.apply(null, times) : null;
-		var mean = times.length ? times.reduce(function(p, c) { return p + c; }, 0) / times.length : null;
+		var ts = times.map(function(r) { return r.t; });
 		document.getElementById("stats").textContent =
-			"solves: " + times.length + "  best: " + fmt(best) + "  ao5: " + fmt(aoN(5)) +
-			"  ao12: " + fmt(aoN(12)) + "  mean: " + fmt(mean);
+			"solves: " + ts.length + "  best: " + fmt(bestOf(ts)) + "  ao5: " + fmt(aoN(ts, 5)) +
+			"  ao12: " + fmt(aoN(ts, 12)) + "  mean: " + fmt(meanOf(ts));
+		renderPatterns();
 		var html = [];
 		for (var i = times.length - 1; i >= 0; i--) {
-			html.push((i + 1) + ". " + fmt(times[i]));
+			html.push((i + 1) + ". " + fmt(times[i].t) + (times[i].u ? "  [" + times[i].u + " / " + times[i].d + "]" : ""));
 		}
 		document.getElementById("times").innerHTML = html.join("<br>");
 	}
@@ -1142,7 +1201,7 @@ var sq1ep = (function() {
 		state = "stopped";
 		document.body.classList.remove("running");
 		timerEl.textContent = fmt(t);
-		times.push(Math.round(t));
+		times.push({ t: Math.round(t), u: current.top, d: current.bot });
 		saveTimes();
 		renderTimes();
 		next();
@@ -1210,6 +1269,27 @@ var sq1ep = (function() {
 	document.getElementById("delall").addEventListener("click", function(e) {
 		if (times.length && confirm("全ての記録を削除しますか？")) {
 			times = [];
+			saveTimes();
+			renderTimes();
+		}
+		e.target.blur();
+	});
+	var modeSel = document.getElementById("statMode");
+	modeSel.value = statMode;
+	modeSel.addEventListener("change", function() {
+		statMode = modeSel.value;
+		try {
+			localStorage.setItem(MODE_KEY, statMode);
+		} catch (e) {}
+		renderPatterns();
+		modeSel.blur();
+	});
+	// パターンごとの記録リセット
+	document.getElementById("patStats").addEventListener("click", function(e) {
+		var key = e.target.getAttribute("data-key");
+		if (!key) return;
+		if (confirm("「" + key + "」の記録を削除しますか？")) {
+			times = times.filter(function(r) { return patternKey(r) != key; });
 			saveTimes();
 			renderTimes();
 		}
