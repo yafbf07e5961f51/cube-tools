@@ -972,7 +972,14 @@ var sqcs = (function() {
 		// ケース内の配置（層のずれ違い）のうち、最も近いものを目標にする
 		var minD = Math.min.apply(null, CASE_SHAPES[caseIdx].map(function(v) { return dist[v]; }));
 		var cur = rndEl(CASE_SHAPES[caseIdx].filter(function(v) { return dist[v] == minD; }));
-		var moves = [];
+		// 最後のAUF/ADF: / ができる向きの中からランダムに選ぶ（[k, j, false] は / なし）
+		var last = [];
+		for (var k = 0; k < 12; k++) {
+			for (var j = 0; j < 12; j++) {
+				if (twistable(turn(rep[cur], k, j))) last.push([k, j, false]);
+			}
+		}
+		var moves = [rndEl(last)];
 		while (dist[cur] > 0) {
 			var u = turn(rep[cur], 0, 0);
 			u.doMove(0);
@@ -998,8 +1005,9 @@ var sqcs = (function() {
 		var scr;
 		for (var t = 0; t < 20; t++) {
 			scr = genMoves(caseIdx).map(function(m) {
-				return m[0] || m[1] ? "(" + fmtTurn(m[0]) + "," + fmtTurn(m[1]) + ")/" : "/";
-			}).join(" ");
+				var tw = m[2] === false ? "" : "/";
+				return m[0] || m[1] ? "(" + fmtTurn(m[0]) + "," + fmtTurn(m[1]) + ")" + tw : tw;
+			}).join(" ").trim();
 			if (scr != lastScramble) break;
 		}
 		lastScramble = scr;
