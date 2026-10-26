@@ -14,10 +14,17 @@ This file is therefore also distributed under the GNU GPL v3.0. See LICENSE.
 <style>
 body { font-family: -apple-system, "Helvetica Neue", sans-serif; background: #1e1e1e; color: #eee; margin: 0; padding: 16px; }
 h1 { font-size: 20px; margin: 0 0 12px; }
-.cases { margin-bottom: 12px; font-family: monospace; font-size: 15px; }
-.catrow { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 0; border-bottom: 1px solid #333; }
-.catrow .cat { min-width: 110px; font-weight: bold; }
-.cases label { cursor: pointer; white-space: nowrap; }
+.cases { margin-bottom: 12px; }
+#groups, #combos { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 24px; }
+.sec { font-weight: bold; margin: 8px 0 4px; }
+.sec label { cursor: pointer; }
+.tablewrap { overflow-x: auto; }
+table.cases { border-collapse: collapse; margin-bottom: 8px; font-family: monospace; font-size: 15px; }
+table.cases th, table.cases td { padding: 3px 6px; text-align: center; }
+table.cases th { color: #aaa; font-weight: normal; }
+table.cases td { color: #666; }
+table.cases td.used { border: 1px solid #444; }
+table.cases td label { cursor: pointer; white-space: nowrap; color: #eee; }
 #detailWrap { display: none; }
 #detailWrap.open { display: block; }
 .note { color: #888; font-size: 13px; margin-bottom: 8px; }
@@ -46,7 +53,7 @@ footer a { color: #aaa; }
 <body>
 <div class="hide-running">
 <h1>Square-1 Cube Shape Trainer</h1>
-<div class="note">ケース選択（左右反転のケースはまとめて表示）。スクランブルは揃った状態から最短の / 回数でその形状にする手順。</div>
+<div class="note">ケース選択（l/r をまとめた表。同 = 両層の l/r が同じ、逆 = 異なる。マスにカーソルを合わせるとケース名を表示）。スクランブルは揃った状態から最短の / 回数でその形状にする手順。</div>
 <div class="cases" id="groups"></div>
 <div class="controls">
   <button id="next">Next (→)</button>
@@ -1069,11 +1076,59 @@ var sqcs = (function() {
 	GROUPS.forEach(function(g) {
 		g.members.forEach(function(c) { groupOfName[NAMES[c]] = g.label; });
 	});
-	var CATS = [];
-	CASE_IDX.forEach(function(c) {
-		var cat = sqcs.categoryOf(c);
-		if (CATS.indexOf(cat) == -1) CATS.push(cat);
-	});
+
+	// ---- 表の構成 ----
+	// ケース名の層部分: "Square-rPawn" → [Square, rPawn], "Pawn-rPawn-lFist" → [rPawn, lFist], "Pair-r42" → [Pair, r42]
+	function layersOf(c) {
+		var t = NAMES[c].split("-");
+		return t.length == 3 ? [t[1], t[2]] : [t[0], t[1]];
+	}
+
+	// l/r（および x312/x321）をまとめた形
+	function baseOf(s) {
+		return s.replace(/^[lr](?=Pawn|Fist|42|51)/, "").replace(/^x3(12|21)$/, "x312/x321");
+	}
+
+	var PLL_ROWS = ["Pair", "L", "Line"];
+
+	function sectionOf(c) {
+		var l0 = layersOf(c)[0];
+		return l0 == "Star" ? "star" : PLL_ROWS.indexOf(l0) >= 0 ? "pll" : "other";
+	}
+
+	// 層の組 {a, b} が一致するケース（上下の入れ替えは同じケース）
+	function casesWith(f) {
+		return CASE_IDX.filter(function(c) { return f(layersOf(c)); });
+	}
+
+	function pairMatch(a, b, conv) {
+		return function(l) {
+			var x = conv(l[0]), y = conv(l[1]);
+			return x == a && y == b || x == b && y == a;
+		};
+	}
+
+	function ident(s) {
+		return s;
+	}
+
+	var SECTIONS = [{
+		key: "other", title: "その他", tri: true,
+		rows: ["Square", "Kite", "Barrel", "Scallop", "Shield", "Mushroom", "Pawn", "Fist"],
+		detail: ["Square", "Kite", "Barrel", "Scallop", "Shield", "Mushroom", "rPawn", "lPawn", "rFist", "lFist"],
+		cell: function(a, b, detail) { return casesWith(pairMatch(a, b, detail ? ident : baseOf)); }
+	}, {
+		key: "star", title: "Star",
+		rows: ["Star"],
+		cols: ["x8", "x71", "x62", "x44", "x53"],
+		cell: function(a, b) { return casesWith(function(l) { return l[0] == a && l[1] == b; }); }
+	}, {
+		key: "pll", title: "Pair / L / Line",
+		rows: PLL_ROWS,
+		cols: ["x6", "42", "x411", "51", "x33", "x312/x321", "x222"],
+		detail: ["x6", "r42", "l42", "x411", "r51", "l51", "x33", "x312", "x321", "x222"],
+		cell: function(a, b, detail) { return casesWith(function(l) { return l[0] == a && (detail ? l[1] : baseOf(l[1])) == b; }); }
+	}];
 
 	// ---- 選択状態 ({ケース名: true/false}) ----
 	var SEL_KEY = "sqcs_selection";
@@ -1095,58 +1150,96 @@ var sqcs = (function() {
 	var groupBoxes = [];
 	var caseBoxes = [];
 
-	function makeBox(parent, text, onChange) {
+	function makeBox(parent, text, members, list) {
 		var label = document.createElement("label");
 		var cb = document.createElement("input");
 		cb.type = "checkbox";
-		cb.addEventListener("change", onChange);
+		cb.addEventListener("change", function() {
+			members.forEach(function(c) { sel[NAMES[c]] = cb.checked; });
+			refresh();
+		});
 		label.appendChild(cb);
-		label.appendChild(document.createTextNode(" " + text));
+		if (text) label.appendChild(document.createTextNode(text));
 		parent.appendChild(label);
+		list.push({ cb: cb, members: members });
 		return cb;
 	}
 
-	function makeRow(container, cat) {
-		var row = document.createElement("div");
-		row.className = "catrow";
-		container.appendChild(row);
-		return row;
+	function headerRow(table, labels) {
+		var tr = document.createElement("tr");
+		[""].concat(labels).forEach(function(s) {
+			var th = document.createElement("th");
+			th.textContent = s;
+			tr.appendChild(th);
+		});
+		table.appendChild(tr);
 	}
 
-	// グループ選択: カテゴリごとに1行
-	var groupsDiv = document.getElementById("groups");
-	CATS.forEach(function(cat) {
-		var row = makeRow(groupsDiv, cat);
-		var catSpan = document.createElement("span");
-		catSpan.className = "cat";
-		row.appendChild(catSpan);
-		var catMembers = CASE_IDX.filter(function(c) { return sqcs.categoryOf(c) == cat; });
-		var catCb = makeBox(catSpan, cat, function() {
-			catMembers.forEach(function(c) { sel[NAMES[c]] = catCb.checked; });
-			refresh();
+	// グループ表のマス: 左右反転の組ごとに1つ（複数あれば 同 / 逆）
+	function fillGroupCell(td, cases) {
+		var gs = GROUPS.filter(function(g) { return cases.indexOf(g.members[0]) >= 0; });
+		gs.forEach(function(g) {
+			var l = layersOf(g.members[0]);
+			var text = gs.length > 1 ? (l[0][0] == l[1][0] ? "同" : "逆") : "";
+			var cb = makeBox(td, text, g.members, groupBoxes);
+			cb.title = g.label;
 		});
-		groupBoxes.push({ cb: catCb, members: catMembers });
-		GROUPS.forEach(function(g) {
-			if (sqcs.categoryOf(g.members[0]) != cat) return;
-			var cb = makeBox(row, g.label, function() {
-				g.members.forEach(function(c) { sel[NAMES[c]] = cb.checked; });
-				refresh();
-			});
-			groupBoxes.push({ cb: cb, members: g.members });
-		});
-	});
+	}
 
-	// 個別選択
-	var combosDiv = document.getElementById("combos");
-	CATS.forEach(function(cat) {
-		var row = makeRow(combosDiv, cat);
-		CASE_IDX.forEach(function(c) {
-			if (sqcs.categoryOf(c) != cat) return;
-			var cb = makeBox(row, NAMES[c], function() {
-				sel[NAMES[c]] = cb.checked;
-				refresh();
+	function fillCaseCell(td, cases) {
+		cases.forEach(function(c) {
+			var cb = makeBox(td, "", [c], caseBoxes);
+			cb.title = NAMES[c];
+		});
+	}
+
+	// 区分ごとに見出し（一括ON/OFF）と表を作る
+	function buildSection(container, s, detail) {
+		var div = document.createElement("div");
+		div.className = "sec";
+		var secMembers = CASE_IDX.filter(function(c) { return sectionOf(c) == s.key; });
+		makeBox(div, " " + s.title, secMembers, groupBoxes);
+		container.appendChild(div);
+		var wrap = document.createElement("div");
+		wrap.className = "tablewrap";
+		var table = document.createElement("table");
+		table.className = "cases";
+		var rows = s.tri && detail ? s.detail : s.rows;
+		var cols = s.tri ? rows : detail && s.detail || s.cols;
+		headerRow(table, cols);
+		rows.forEach(function(a, i) {
+			var tr = document.createElement("tr");
+			var th = document.createElement("th");
+			th.textContent = a;
+			tr.appendChild(th);
+			cols.forEach(function(b, j) {
+				var td = document.createElement("td");
+				if (!s.tri || j >= i) {
+					td.className = "used";
+					var cases = s.cell(a, b, detail);
+					if (cases.length == 0) {
+						td.textContent = "－";
+					} else if (detail) {
+						fillCaseCell(td, cases);
+					} else {
+						fillGroupCell(td, cases);
+					}
+				}
+				tr.appendChild(td);
 			});
-			caseBoxes.push({ cb: cb, c: c });
+			table.appendChild(tr);
+		});
+		wrap.appendChild(table);
+		container.appendChild(wrap);
+	}
+
+	// 左列: その他 / 右列: Star と Pair / L / Line（幅が足りなければ折り返す）
+	["groups", "combos"].forEach(function(id) {
+		var container = document.getElementById(id);
+		var cols = [document.createElement("div"), document.createElement("div")];
+		cols.forEach(function(col) { container.appendChild(col); });
+		SECTIONS.forEach(function(s, i) {
+			buildSection(cols[i == 0 ? 0 : 1], s, id == "combos");
 		});
 	});
 
@@ -1156,7 +1249,7 @@ var sqcs = (function() {
 			g.cb.checked = n == g.members.length;
 			g.cb.indeterminate = n > 0 && n < g.members.length;
 		});
-		caseBoxes.forEach(function(x) { x.cb.checked = sel[NAMES[x.c]]; });
+		caseBoxes.forEach(function(x) { x.cb.checked = sel[NAMES[x.members[0]]]; });
 		document.getElementById("count").textContent =
 			"選択中: " + CASE_IDX.filter(function(c) { return sel[NAMES[c]]; }).length + " / " + CASE_IDX.length + " ケース";
 		saveSel();
