@@ -16,6 +16,7 @@ h1 { font-size: 20px; margin: 0 0 12px; }
 table.cases { border-collapse: collapse; margin-bottom: 12px; font-family: monospace; font-size: 15px; }
 table.cases th, table.cases td { padding: 3px 6px; text-align: center; }
 table.cases th { color: #aaa; font-weight: normal; }
+table.cases td.used { border: 1px solid #444; }
 table.cases td label { cursor: pointer; display: block; }
 #detailWrap { display: none; }
 #detailWrap.open { display: block; }
@@ -980,6 +981,7 @@ var sq1ep = (function() {
 		cb.addEventListener("change", onChange);
 		label.appendChild(cb);
 		td.appendChild(label);
+		td.className = "used";
 		return cb;
 	}
 
